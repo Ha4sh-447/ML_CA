@@ -39,7 +39,6 @@ st.markdown("""
         color: white;
         text-align: center;
     }
-    /* The .info-box CSS class has been removed */
     .stSlider > div > div > div > div {
         background-color: #1f77b4;
     }
@@ -48,15 +47,11 @@ st.markdown("""
 
 # ------------------ App Header ------------------
 st.markdown('<p class="main-header">🏡 California Housing Price Prediction</p>', unsafe_allow_html=True)
-
-# --- This section is now plain text ---
 st.markdown(
     "This interactive app demonstrates how **regularization (Ridge, Lasso, ElasticNet)** affects "
     "the prediction result using the California Housing dataset. Adjust parameters to see "
     "how the model performance changes!"
 )
-# --- End of change ---
-
 
 # ------------------ Load Dataset ------------------
 @st.cache_data
@@ -75,12 +70,9 @@ lat_max = float(X['Latitude'].max())
 lon_min = float(X['Longitude'].min())
 lon_max = float(X['Longitude'].max())
 pop_min = int(X['Population'].min())
-# Cap population max for a reasonable slider
 pop_slider_max = min(int(X['Population'].max()), 30000) 
 age_min = int(X['HouseAge'].min())
 age_max = int(X['HouseAge'].max())
-# --- End of change ---
-
 
 # ------------------ Sidebar Configuration ------------------
 with st.sidebar:
@@ -99,7 +91,7 @@ with st.sidebar:
     alpha = st.slider(
         "Alpha (λ) - Regularization Strength",
         min_value=0.01,
-        max_value=10.0,  # Adjusted max alpha for this dataset
+        max_value=10.0,
         value=0.1,
         step=0.01,
         help="Higher values = stronger regularization = simpler model"
@@ -124,7 +116,6 @@ with st.sidebar:
     st.markdown("---")
     st.header("🏡 Property Features")
     
-    # --- Sliders updated for sensible inputs ---
     medinc = st.slider("Median Income (in $10,000s)", 0.5, 15.0, 3.5, step=0.1)
     house_age = st.slider("Housing Median Age", age_min, age_max, 25, step=1)
     ave_rooms = st.slider("Average Rooms", 1.0, 10.0, 5.0, step=0.1)
@@ -133,39 +124,56 @@ with st.sidebar:
     ave_occup = st.slider("Average Occupancy", 1.0, 5.0, 3.0, step=0.1)
     latitude = st.slider("Latitude", lat_min, lat_max, 36.0, step=0.01)
     longitude = st.slider("Longitude", lon_min, lon_max, -119.0, step=0.01)
-    # --- End of change ---
 
 
-# ------------------ Preprocess Data (Outside tabs) ------------------
-# We split the raw, unscaled data here
-X_train_raw, X_test_raw, y_train, y_test = train_test_split(
-    X, y, test_size=test_size, random_state=42
+# ------------------ (OPTIMIZED) Model Training Function ------------------
+@st.cache_data
+def get_model_and_metrics(model_type, alpha, l1_ratio, test_size):
+    """
+    Splits, scales, and trains a single model.
+    This function is cached, so it only re-runs when its inputs change.
+    """
+    # Load data (this call is cached, so it's instant)
+    X_cache, y_cache, _ = load_data() 
+    
+    # 1. Preprocess
+    X_train_raw, X_test_raw, y_train, y_test = train_test_split(
+        X_cache, y_cache, test_size=test_size, random_state=42
+    )
+    
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train_raw)
+    X_test_scaled = scaler.transform(X_test_raw)
+
+    # 2. Train Model
+    if model_type == "Ridge":
+        model = Ridge(alpha=alpha)
+    elif model_type == "Lasso":
+        model = Lasso(alpha=alpha, max_iter=10000)
+    else:
+        model = ElasticNet(alpha=alpha, l1_ratio=l1_ratio, max_iter=10000)
+
+    model.fit(X_train_scaled, y_train)
+    
+    # 3. Calculate Metrics
+    y_train_pred = model.predict(X_train_scaled)
+    y_test_pred = model.predict(X_test_scaled)
+    
+    train_mse = mean_squared_error(y_train, y_train_pred)
+    test_mse = mean_squared_error(y_test, y_test_pred)
+    train_r2 = r2_score(y_train, y_train_pred)
+    test_r2 = r2_score(y_test, y_test_pred)
+    
+    # 4. Return everything needed
+    return model, scaler, train_mse, test_mse, train_r2, test_r2
+
+# --- Call the cached model training function ---
+# This is now the *only* place the model is trained
+current_model, scaler, train_mse, test_mse, train_r2, test_r2 = get_model_and_metrics(
+    model_type, alpha, l1_ratio, test_size
 )
 
-# We fit the scaler ONLY on the training data
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train_raw)
-# We transform the test data using the scaler fitted on train data
-X_test_scaled = scaler.transform(X_test_raw)
-
-# ------------------ Train Model with Current Alpha (Outside tabs) ------------------
-if model_type == "Ridge":
-    current_model = Ridge(alpha=alpha)
-elif model_type == "Lasso":
-    current_model = Lasso(alpha=alpha, max_iter=10000)
-else:
-    current_model = ElasticNet(alpha=alpha, l1_ratio=l1_ratio, max_iter=10000)
-
-current_model.fit(X_train_scaled, y_train)
-y_train_pred = current_model.predict(X_train_scaled)
-y_test_pred = current_model.predict(X_test_scaled)
-
-train_mse = mean_squared_error(y_train, y_train_pred)
-test_mse = mean_squared_error(y_test, y_test_pred)
-train_r2 = r2_score(y_train, y_train_pred)
-test_r2 = r2_score(y_test, y_test_pred)
-
-# ------------------ Cached Function for Plot Data ------------------
+# ------------------ (Cached) Function for Plot Data ------------------
 @st.cache_data
 def get_regression_curves(model_type, l1_ratio, test_size, data_hash):
     """
@@ -185,7 +193,7 @@ def get_regression_curves(model_type, l1_ratio, test_size, data_hash):
     X_train_scaled_cache = scaler_cache.fit_transform(X_train_cache_raw)
     X_test_scaled_cache = scaler_cache.transform(X_test_cache_raw)
     
-    alphas = np.logspace(-2, 1, 50) # Adjusted alpha range for this dataset
+    alphas = np.logspace(-2, 1, 50) 
     train_errors, test_errors = [], []
     
     for a in alphas:
@@ -251,8 +259,6 @@ with tab2:
         st.metric("Test R²", f"{test_r2:.4f}")
     
     # ------------------ Get Full Range for Visualization ------------------
-    # Note: data_hash is just to ensure the cache invalidates if data changes
-    # In this app, it's static, but good practice.
     alphas, train_errors, test_errors = get_regression_curves(
         model_type, l1_ratio, test_size, hash(y.to_string())
     )
@@ -300,12 +306,10 @@ with tab2:
     intercept_df = pd.DataFrame({'Feature': ['(Intercept)'], 'Weight': [intercept]})
     final_df = pd.concat([intercept_df, coef_df], ignore_index=True).set_index('Feature')
     
-    # Function to style the zeros
     def highlight_zeros(val):
         color = 'red' if (val == 0 and model_type != 'Ridge') else 'inherit'
         return f'color: {color}; font-weight: bold;' if color == 'red' else ''
 
-    # Display the styled DataFrame
     st.dataframe(
         final_df.style.format({'Weight': '{:,.4f}'})
                     .applymap(highlight_zeros, subset=['Weight']),
@@ -321,14 +325,14 @@ with tab2:
         st.markdown("""
         **🎯 Alpha (λ) Effect:**
         - **Low α** → Weak regularization → Complex model
-          - Risk: Overfitting (high variance)
-          - Training error: Low
-          - Testing error: Higher (gap is large)
+            - Risk: Overfitting (high variance)
+            - Training error: Low
+            - Testing error: Higher (gap is large)
         
         - **High α** → Strong regularization → Simple model
-          - Risk: Underfitting (high bias)
-          - Training error: Higher
-          - Testing error: Higher (errors converge)
+            - Risk: Underfitting (high bias)
+            - Training error: Higher
+            - Testing error: Higher (errors converge)
         """)
     
     with col2:
@@ -374,12 +378,12 @@ with tab3:
         st.dataframe(input_df)
     
     with col2:
-        # Scale the input using the *same scaler*
+        # Scale the input using the *same scaler* from the cached function
         input_scaled = scaler.transform(input_df)
         
-        # Predict
+        # Predict using the *same model* from the cached function
         predicted_cost_100k = current_model.predict(input_scaled)[0]
-        predicted_cost_actual = predicted_cost_100k * 100000  # Convert to actual dollars
+        predicted_cost_actual = predicted_cost_100k * 100000 
         
         st.markdown(f"""
         <div class="metric-card">
@@ -392,15 +396,6 @@ with tab3:
         avg_value_100k = y.mean()
         avg_value_actual = avg_value_100k * 100000
         diff_percent = ((predicted_cost_actual - avg_value_actual) / avg_value_actual) * 100
-        
-        # --- Uncommented this section ---
-        #st.markdown(f"""
-        #<br>
-        #**Comparison with Average:**
-        #- Dataset Average: ${avg_value_actual:,.2f}
-        #- Your Prediction: {'**' + str(f'{diff_percent:+.1f}%') + '**'} {'above' if diff_percent > 0 else 'below'} average
-        #""", unsafe_allow_html=True)
-        # --- End of change ---
 
 # ------------------ Footer ------------------
 st.markdown("---")
