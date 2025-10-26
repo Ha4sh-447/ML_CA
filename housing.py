@@ -264,7 +264,7 @@ with tab2:
     )
     
     # ------------------ Interactive Plot (MSE) ------------------
-    st.markdown('<p class="sub-header">Bias-Variance Tradeoff Curve</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Regression MSE Curve</p>', unsafe_allow_html=True)
     
     fig, ax = plt.subplots(figsize=(12, 6))
     ax.plot(alphas, train_errors, label="Training Error", marker='o', linewidth=2, markersize=4, color='#2ecc71')
